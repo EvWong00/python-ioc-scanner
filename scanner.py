@@ -44,6 +44,44 @@ def parse_verdict(vt_json):
 
 def scan_folder(folder_path, output_csv="report.csv"):
     rows = []
-    for root,_, files in os.walk(folder_path):
+    for root, _, files in os.walk(folder_path):
         for fname in files:
+            full = os.path.join(root, fname)
+            md5, sha256 = hash_file(full)
+            print(f"Scanning {fname} MD5:{md5} SHA256:{sha256}")
+            vt      = vt_lookup(sha256)
+            verdict = parse_verdict(vt) if vt else "error"
+            rows.append([fname, md5, sha256, verdict])
+            
+with open(output_csv, "w", newline="") as out:
+    writer = csv.writer(out)
+    writer.writerows(["filename", "md5", "sha256", "verdict"])
+print(f"Report saved to {output_csv}")
+
+# CLI Entrypoint
+
+if __name__== "__main__":
+    import argparse 
+    p = argparse.ArgumentParser(description="Python IoC Scanner")
+    p.add_argument("folder", help = "Folder to scan")
+    p.add_argument("--watch", action="store_true",
+                   help="Scan new files in real-time")
+    args = p.parse_args()
+    
+    if args.watch:
+        from watchdog.observers import Observer
+        from watchdog.events    import FileSystemEventHandler
+        
+        class Handler(FileSystemEventHandler):
+            def on_created(self, event):
+                if not event.is_directory:
+                    scan_folder(os.path.dirname(event.src_path),
+                                output_csv="live_report.csv")
+                    
+        obs = Observer()
+        obs.schedule(Handler(), path=args.folder, recursive=True)
+        obs.start()
+        obs.join()
+    else:
+        scan_folder(args.folder) 
             
