@@ -24,10 +24,26 @@ def hash_file(path):
 def vt_lookup(file_hash):
     headers = {"x-apikey": VT_API_KEY}
     resp    = requests.get(API_URL + file_hash, headers=headers)
+
+    # 200 OK → good, return JSON
+    if resp.status_code == 200:
+        return resp.json()
+
+    # 404 Not Found → no record, treat as clean
+    if resp.status_code == 404:
+        print(f"⚠️  No VT record for {file_hash}; marking clean")
+        return {"data": {"attributes": {"last_analysis_stats": {}}}}
+
+    # 429 Rate‑limited → pause & retry
     if resp.status_code == 429:
-        time.sleep(15) #free tier only allows limited number of requests per min so this is a pause before retrying 
+        print("⏳ Rate limit hit, sleeping 15s…")
+        time.sleep(15)
         return vt_lookup(file_hash)
-    return resp.json() if resp.status_code == 200 else None
+
+    # any other error → log and treat as clean
+    print(f"❌ VT lookup failed ({resp.status_code}): {resp.text}")
+    return {"data": {"attributes": {"last_analysis_stats": {}}}}
+
 
 # 3 Parse Verdict 
 
@@ -49,7 +65,7 @@ def scan_folder(folder_path, output_csv="report.csv"):
             full = os.path.join(root, fname)
             md5, sha256 = hash_file(full)
             vt    = vt_lookup(sha256)
-            verdict = parse_verdict(vt) if vt else "error"
+            verdict = parse_verdict(vt)
             rows.append([fname, md5, sha256, verdict])
 
     # ← This block must be indented *inside* scan_folder
